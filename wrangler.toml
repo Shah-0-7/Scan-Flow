@@ -1,2 +1,5 @@
 name = "scan-flow"
-pages_build_output_dir = "out"
+compatibility_date = "2026-08-20"
+
+[assets]
+directory = "./out"
