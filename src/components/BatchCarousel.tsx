@@ -70,7 +70,8 @@ export function BatchCarousel() {
               originalImage: event.target.result as string,
               croppedImage: null,
               cropPoints: null,
-              filter: 'original'
+              filter: 'original',
+              adjustments: { brightness: 100, contrast: 100, saturation: 100 }
             });
           }
         };
@@ -105,7 +106,7 @@ export function BatchCarousel() {
               isCurrent={currentPageId === page.id}
               onSetCurrent={setCurrentPageId}
               onRemove={removePage}
-              onEdit={(mode = 'edit') => setScannerMode(mode)}
+              onEdit={() => setScannerMode('edit')}
             />
           ))}
         </SortableContext>

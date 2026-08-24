@@ -46,7 +46,8 @@ export function CameraCapture() {
           originalImage: imageUrl,
           croppedImage: null,
           cropPoints: null,
-          filter: 'original'
+          filter: 'original',
+          adjustments: { brightness: 100, contrast: 100, saturation: 100 }
         });
         setScannerMode('preview');
       }
@@ -64,7 +65,8 @@ export function CameraCapture() {
               originalImage: event.target.result as string,
               croppedImage: null,
               cropPoints: null,
-              filter: 'original'
+              filter: 'original',
+              adjustments: { brightness: 100, contrast: 100, saturation: 100 }
             });
           }
         };
