@@ -631,7 +631,7 @@ export function CropEditor() {
             src={currentSrc}
             alt="document to crop"
             onLoad={onImgLoad}
-            className="absolute pointer-events-none select-none object-contain transition-[width,height,left,top] duration-300"
+            className="absolute pointer-events-none select-none object-contain"
             style={{
               left: displaySize.offX,
               top: displaySize.offY,
@@ -715,7 +715,7 @@ export function CropEditor() {
       </div>
 
       {/* Spacer to push image up when mobile sheet is open */}
-      <div className={`md:hidden transition-all duration-300 bg-black ${mobileEditOpen ? (mobileEditTab === 'filters' ? 'h-[160px]' : 'h-[320px]') : 'h-0'}`} />
+      <div className={`md:hidden bg-black ${mobileEditOpen ? (mobileEditTab === 'filters' ? 'h-[160px]' : 'h-[320px]') : 'h-0'}`} />
 
       {/* Desktop Contextual Bottom Bar */}
       <div className="hidden md:flex flex-shrink-0 bg-surface border-t border-border px-6 py-6 h-32 items-center justify-center relative transition-all">

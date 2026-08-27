@@ -170,10 +170,6 @@ export function HeroOverlay({ onComplete }: { onComplete: () => void }) {
       {/* Hidden SVG: wave distort filter + clip-path definition */}
       <svg aria-hidden style={{ position: "fixed", width: 0, height: 0, overflow: "hidden" }}>
         <defs>
-          <filter id="wave-distort-hero" x="-25%" y="-25%" width="150%" height="150%">
-            <feTurbulence type="turbulence" baseFrequency="0.042 0.02" numOctaves="5" result="noise" />
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="20" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
           <clipPath id="hero-hole-dyn" clipPathUnits="userSpaceOnUse">
             {/* d is written imperatively — React never touches it during animation */}
             <path ref={svgPathRef} fillRule="evenodd" d="" />
@@ -190,7 +186,7 @@ export function HeroOverlay({ onComplete }: { onComplete: () => void }) {
       <canvas
         ref={canvasRef}
         className="absolute inset-0 pointer-events-none"
-        style={{ zIndex: 60, filter: "url(#wave-distort-hero)", display: "none" }}
+        style={{ zIndex: 60, display: "none" }}
       />
 
       <PrivacyModal isOpen={showPrivacy} onClose={() => setShowPrivacy(false)} />
