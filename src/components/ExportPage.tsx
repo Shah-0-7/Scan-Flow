@@ -8,6 +8,7 @@ import { saveAs } from "file-saver";
 import { DndContext, closestCenter, KeyboardSensor, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, sortableKeyboardCoordinates, rectSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { ExportSuccessModal } from './ExportSuccessModal';
 
 function SortableGridItem({ page, index, onCameraClick, onEdit }: any) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: page.id });
@@ -53,13 +54,15 @@ function SortableGridItem({ page, index, onCameraClick, onEdit }: any) {
 }
 
 export function ExportPage() {
-  const { pages, setScannerMode, reorderPages, addPage, setCurrentPageId, setEditReturnMode, addRecentDocument } = useScannerStore();
+  const { pages, setScannerMode, reorderPages, addPage, setCurrentPageId, setEditReturnMode, addRecentDocument, clearPages } = useScannerStore();
   const [format, setFormat] = useState<'pdf' | 'zip'>('pdf');
   const [docName, setDocName] = useState('ScanFlow_Document');
   const [quality, setQuality] = useState(0.8);
   const [pageSize, setPageSize] = useState<'fit' | 'a4' | 'letter'>('fit');
   const [estimatedSize, setEstimatedSize] = useState<number | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
+  const [isSuccessModalOpen, setIsSuccessModalOpen] = useState(false);
+  const [exportedBlob, setExportedBlob] = useState<Blob | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -180,45 +183,57 @@ export function ExportPage() {
       type: format
     });
     
-    if (format === 'pdf') {
-      const doc = new jsPDF();
-      doc.deletePage(1); // Remove default A4 page to generate dynamic pages
-      
-      for (let i = 0; i < pages.length; i++) {
-        try {
+      let finalBlob: Blob | null = null;
+      if (format === 'pdf') {
+        const doc = new jsPDF();
+        doc.deletePage(1); // Remove default A4 page to generate dynamic pages
+        
+        for (let i = 0; i < pages.length; i++) {
+          try {
+            const rawImg = pages[i].croppedImage || pages[i].originalImage;
+            const compressedImg = await getCompressedImage(rawImg, quality);
+            const imgProps = doc.getImageProperties(compressedImg);
+            
+            let pdfWidth, pdfHeight;
+            if (pageSize === 'fit') {
+              // Scale image to fit within A4 dimensions (595 x 842 pt) while preserving aspect ratio
+              const A4_W = 595, A4_H = 842;
+              const imgRatio = imgProps.width / imgProps.height;
+              if (imgRatio > A4_W / A4_H) {
+                pdfWidth = A4_W;
+                pdfHeight = A4_W / imgRatio;
+              } else {
+                pdfHeight = A4_H;
+                pdfWidth = A4_H * imgRatio;
+              }
+              doc.addPage([pdfWidth, pdfHeight], pdfWidth > pdfHeight ? 'landscape' : 'portrait');
+              doc.addImage(compressedImg, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+            } else {
+              doc.addPage(pageSize);
+              pdfWidth = doc.internal.pageSize.getWidth();
+              pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+              doc.addImage(compressedImg, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+            }
+          } catch (e) {
+            console.error("Failed to add image to PDF", e);
+          }
+        }
+        finalBlob = doc.output('blob');
+        saveAs(finalBlob, `${docName}.pdf`);
+      } else {
+        const zip = new JSZip();
+        for (let i = 0; i < pages.length; i++) {
           const rawImg = pages[i].croppedImage || pages[i].originalImage;
           const compressedImg = await getCompressedImage(rawImg, quality);
-          const imgProps = doc.getImageProperties(compressedImg);
-          
-          let pdfWidth, pdfHeight;
-          if (pageSize === 'fit') {
-            // Assume 96 DPI: 1 pixel = 0.75 points
-            pdfWidth = imgProps.width * 0.75;
-            pdfHeight = imgProps.height * 0.75;
-            doc.addPage([pdfWidth, pdfHeight], pdfWidth > pdfHeight ? 'landscape' : 'portrait');
-            doc.addImage(compressedImg, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-          } else {
-            doc.addPage(pageSize);
-            pdfWidth = doc.internal.pageSize.getWidth();
-            pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-            doc.addImage(compressedImg, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-          }
-        } catch (e) {
-          console.error("Failed to add image to PDF", e);
+          const base64Data = compressedImg.split(',')[1];
+          zip.file(`Page_${i + 1}.jpg`, base64Data, { base64: true });
         }
+        finalBlob = await zip.generateAsync({ type: "blob" });
+        saveAs(finalBlob, `${docName}.zip`);
       }
-      doc.save(`${docName}.pdf`);
-    } else {
-      const zip = new JSZip();
-      for (let i = 0; i < pages.length; i++) {
-        const rawImg = pages[i].croppedImage || pages[i].originalImage;
-        const compressedImg = await getCompressedImage(rawImg, quality);
-        const base64Data = compressedImg.split(',')[1];
-        zip.file(`Page_${i + 1}.jpg`, base64Data, { base64: true });
-      }
-      const content = await zip.generateAsync({ type: "blob" });
-      saveAs(content, `${docName}.zip`);
-    }
+
+      setExportedBlob(finalBlob);
+      setIsSuccessModalOpen(true);
   };
 
 
@@ -231,9 +246,6 @@ export function ExportPage() {
         <button onClick={() => setScannerMode('preview')} className="text-white">
           <ArrowLeft size={24} />
         </button>
-        <div className="bg-primary/20 p-1.5 rounded-lg flex items-center justify-center">
-          <Scan size={20} className="text-primary" />
-        </div>
       </div>
 
       {/* Batch Queue Area */}
@@ -376,6 +388,21 @@ export function ExportPage() {
           </button>
         </div>
       </div>
+
+      <ExportSuccessModal
+        isOpen={isSuccessModalOpen}
+        onClose={() => setIsSuccessModalOpen(false)}
+        fileName={`${docName}.${format}`}
+        fileSize={formatSize(estimatedSize || 0)}
+        pageCount={pages.length}
+        fileBlob={exportedBlob}
+        onStartNewScan={() => {
+          setIsSuccessModalOpen(false);
+          clearPages();
+          setScannerMode('home');
+        }}
+        onDownloadAgain={handleExport}
+      />
     </div>
   );
 }

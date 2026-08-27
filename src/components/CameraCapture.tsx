@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Upload, Zap, SlidersHorizontal, Image as ImageIcon } from "lucide-react";
 import { useScannerStore } from "@/store/useScannerStore";
+import { FilterType } from "@/types";
 
 export function CameraCapture() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -10,6 +11,38 @@ export function CameraCapture() {
   const [error, setError] = useState<string>("");
   const { pages, addPage, setScannerMode } = useScannerStore();
   const [mode, setMode] = useState<'single' | 'batch'>('single');
+  const [flashEnabled, setFlashEnabled] = useState(false);
+  const [liveFilter, setLiveFilter] = useState<FilterType>('original');
+  const [showFilters, setShowFilters] = useState(false);
+
+  const getCssFilter = (filter: FilterType) => {
+    let f = "";
+    if (filter === "grayscale")      f += "grayscale(100%) ";
+    else if (filter === "bw")        f += "grayscale(100%) contrast(1000%) ";
+    else if (filter === "magic")     f += "contrast(150%) brightness(110%) saturate(120%) ";
+    else if (filter === "highlight") f += "contrast(200%) brightness(120%) grayscale(20%) ";
+    return f.trim();
+  };
+
+  const toggleFlash = async () => {
+    if (!stream) return;
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      try {
+        // Cast to any since standard TS typings might not include torch yet
+        const capabilities = (track.getCapabilities && track.getCapabilities()) as any;
+        if (capabilities && capabilities.torch) {
+          const newFlashState = !flashEnabled;
+          await track.applyConstraints({
+            advanced: [{ torch: newFlashState }] as any
+          });
+          setFlashEnabled(newFlashState);
+        }
+      } catch (err) {
+        console.error("Failed to toggle flash", err);
+      }
+    }
+  };
 
   const startCamera = async () => {
     try {
@@ -47,7 +80,7 @@ export function CameraCapture() {
           originalImage: imageUrl,
           croppedImage: null,
           cropPoints: null,
-          filter: 'original',
+          filter: liveFilter,
           adjustments: { brightness: 0, contrast: 0, saturation: 0 }
         });
         if (mode === 'single') {
@@ -102,7 +135,10 @@ export function CameraCapture() {
           Auto-Detect
         </button>
         
-        <button className="text-white p-3 rounded-full bg-surface/50 backdrop-blur-md">
+        <button 
+          onClick={toggleFlash}
+          className={`p-3 rounded-full backdrop-blur-md transition-colors ${flashEnabled ? 'bg-primary text-primary-foreground' : 'bg-surface/50 text-white'}`}
+        >
           <Zap size={20} />
         </button>
       </div>
@@ -110,7 +146,7 @@ export function CameraCapture() {
       {error ? (
         <div className="flex-1 flex items-center justify-center text-red-400 font-medium">{error}</div>
       ) : (
-        <video ref={videoRef} autoPlay playsInline className="absolute inset-0 object-cover h-full w-full z-0" />
+        <video ref={videoRef} autoPlay playsInline className="absolute inset-0 object-cover h-full w-full z-0" style={{ filter: getCssFilter(liveFilter) }} />
       )}
 
       {/* Mobile Viewfinder Overlay */}
@@ -121,10 +157,6 @@ export function CameraCapture() {
           <div className="absolute top-[-2px] right-[-2px] w-6 h-6 border-t-2 border-r-2 border-primary"></div>
           <div className="absolute bottom-[-2px] left-[-2px] w-6 h-6 border-b-2 border-l-2 border-primary"></div>
           <div className="absolute bottom-[-2px] right-[-2px] w-6 h-6 border-b-2 border-r-2 border-primary"></div>
-        </div>
-        
-        <div className="mt-8 bg-surface/70 backdrop-blur-md border border-white/10 text-white text-sm px-6 py-3 rounded-full">
-          Hold steady. Document detected.
         </div>
       </div>
       
@@ -169,9 +201,38 @@ export function CameraCapture() {
             <div className="w-full h-full bg-primary rounded-full"></div>
           </button>
           
-          <div className="w-16 h-16 invisible" /> {/* Spacer to balance layout */}
+          <div className="relative flex justify-center items-center">
+            {showFilters && (
+              <div className="absolute left-full ml-4 flex flex-row gap-3 items-center animate-in slide-in-from-left-4 fade-in duration-200">
+                {[
+                  { key: "original", label: "Orig" },
+                  { key: "magic", label: "Magic" },
+                  { key: "highlight", label: "High" },
+                  { key: "grayscale", label: "Gray" },
+                  { key: "bw", label: "B&W" }
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setLiveFilter(f.key as FilterType)}
+                    className={`w-12 h-12 rounded-full text-[10px] font-bold flex items-center justify-center transition-all flex-shrink-0 ${
+                      liveFilter === f.key
+                        ? 'bg-primary text-primary-foreground shadow-lg scale-110'
+                        : 'bg-surface/80 text-white backdrop-blur-md border border-white/10 hover:bg-surface'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowFilters(!showFilters)} className={`w-16 h-16 rounded-full flex items-center justify-center transition-colors relative z-10 ${showFilters ? 'bg-primary text-primary-foreground shadow-lg' : 'bg-surface text-gray-300 hover:bg-surface-hover hover:text-white'}`}>
+              <SlidersHorizontal size={24} />
+            </button>
+          </div>
         </div>
       </div>
+
+
 
       {/* Mobile Shutter Area */}
       <div className="md:hidden absolute bottom-0 w-full z-20 bg-gradient-to-t from-black via-black/80 to-transparent pb-10 pt-20 px-8">
@@ -215,9 +276,34 @@ export function CameraCapture() {
             <div className="w-full h-full bg-primary rounded-full"></div>
           </button>
           
-          <button className="w-14 h-14 rounded-full bg-surface flex items-center justify-center text-gray-300">
-            <SlidersHorizontal size={24} />
-          </button>
+          <div className="relative flex justify-center">
+            {showFilters && (
+              <div className="absolute bottom-full mb-4 flex flex-col gap-3 items-center animate-in slide-in-from-bottom-2 fade-in duration-200">
+                {[
+                  { key: "bw", label: "B&W" },
+                  { key: "grayscale", label: "Gray" },
+                  { key: "highlight", label: "High" },
+                  { key: "magic", label: "Magic" },
+                  { key: "original", label: "Orig" }
+                ].map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setLiveFilter(f.key as FilterType)}
+                    className={`w-12 h-12 rounded-full text-[10px] font-bold flex items-center justify-center transition-all ${
+                      liveFilter === f.key
+                        ? 'bg-primary text-primary-foreground shadow-lg scale-110'
+                        : 'bg-surface/80 text-white backdrop-blur-md border border-white/10 hover:bg-surface'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowFilters(!showFilters)} className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors relative z-10 ${showFilters ? 'bg-primary text-primary-foreground shadow-lg' : 'bg-surface text-gray-300'}`}>
+              <SlidersHorizontal size={24} />
+            </button>
+          </div>
         </div>
       </div>
 

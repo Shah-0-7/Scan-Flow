@@ -87,10 +87,35 @@ function detectDocumentBoundaries(src: string): Promise<Point[] | null> {
   });
 }
 
-// ─── Perspective warp using scanline approach (no CORS issues) ─────────────────
+// ─── Warp worker source — runs off main thread (non-blocking) ──────────────────
+const WARP_WORKER_SRC = `
+self.onmessage = function(e) {
+  var d = e.data;
+  var src32 = new Uint32Array(d.srcBuf);
+  var dst32 = new Uint32Array(d.outW * d.outH);
+  var tl = d.tl, tr = d.tr, br = d.br, bl = d.bl;
+  var invW = 1.0 / d.outW, invH = 1.0 / d.outH;
+  for (var dy = 0; dy < d.outH; dy++) {
+    var ty = dy * invH;
+    var lx = (1-ty)*tl.x + ty*bl.x, ly = (1-ty)*tl.y + ty*bl.y;
+    var rx = (1-ty)*tr.x + ty*br.x, ry = (1-ty)*tr.y + ty*br.y;
+    var dxr = rx-lx, dyr = ry-ly;
+    var base = dy * d.outW;
+    for (var dx = 0; dx < d.outW; dx++) {
+      var tx = dx * invW;
+      var ix = (lx + tx*dxr + 0.5) | 0;
+      var iy = (ly + tx*dyr + 0.5) | 0;
+      if (ix >= 0 && ix < d.srcW && iy >= 0 && iy < d.srcH)
+        dst32[base + dx] = src32[iy * d.srcW + ix];
+    }
+  }
+  self.postMessage(dst32.buffer, [dst32.buffer]);
+};
+`;
+
 function warpPerspective(
   src: string,
-  corners: Point[], // [TL, TR, BR, BL] in natural image coordinates
+  corners: Point[],
   outW: number,
   outH: number
 ): Promise<string> {
@@ -111,8 +136,8 @@ function warpPerspective(
         const ys = corners.map(c => c.y);
         const x0 = Math.max(0, Math.min(...xs));
         const y0 = Math.max(0, Math.min(...ys));
-        const w  = Math.min(img.naturalWidth  - x0, Math.max(...xs) - x0);
-        const h  = Math.min(img.naturalHeight - y0, Math.max(...ys) - y0);
+        const w = Math.min(img.naturalWidth - x0, Math.max(...xs) - x0);
+        const h = Math.min(img.naturalHeight - y0, Math.max(...ys) - y0);
         const dst = document.createElement("canvas");
         dst.width = w; dst.height = h;
         dst.getContext("2d")!.drawImage(img, x0, y0, w, h, 0, 0, w, h);
@@ -121,110 +146,75 @@ function warpPerspective(
       }
 
       const [tl, tr, br, bl] = corners;
-      const dstCanvas = document.createElement("canvas");
-      dstCanvas.width  = outW;
-      dstCanvas.height = outH;
-      const dstCtx = dstCanvas.getContext("2d")!;
-      const dstData = dstCtx.createImageData(outW, outH);
+      const srcBuf = srcData.data.buffer;
 
-      const SW = img.naturalWidth;
+      const blob = new Blob([WARP_WORKER_SRC], { type: "application/javascript" });
+      const workerUrl = URL.createObjectURL(blob);
+      const worker = new Worker(workerUrl);
 
-      for (let dy = 0; dy < outH; dy++) {
-        const ty = dy / outH;
-        for (let dx = 0; dx < outW; dx++) {
-          const tx = dx / outW;
-          const sx = (1 - ty) * ((1 - tx) * tl.x + tx * tr.x)
-                   +      ty  * ((1 - tx) * bl.x + tx * br.x);
-          const sy = (1 - ty) * ((1 - tx) * tl.y + tx * tr.y)
-                   +      ty  * ((1 - tx) * bl.y + tx * br.y);
+      const finish = (dstBuf: ArrayBuffer) => {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        const dstCanvas = document.createElement("canvas");
+        dstCanvas.width = outW; dstCanvas.height = outH;
+        const dstCtx = dstCanvas.getContext("2d")!;
+        const dstImgData = dstCtx.createImageData(outW, outH);
+        new Uint8Array(dstImgData.data.buffer).set(new Uint8Array(dstBuf));
+        dstCtx.putImageData(dstImgData, 0, 0);
+        resolve(dstCanvas.toDataURL("image/jpeg", 0.92));
+      };
 
-          const ix = Math.round(sx);
-          const iy = Math.round(sy);
-          const dIdx = (dy * outW + dx) * 4;
+      worker.onmessage = (ev) => finish(ev.data);
+      worker.onerror = () => {
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+        // Fallback: simple bounding-box crop
+        const xs = corners.map(c => c.x), ys = corners.map(c => c.y);
+        const x0 = Math.min(...xs), y0 = Math.min(...ys);
+        const fw = Math.max(...xs) - x0, fh = Math.max(...ys) - y0;
+        const fb = document.createElement("canvas");
+        fb.width = outW; fb.height = outH;
+        fb.getContext("2d")!.drawImage(srcCanvas, x0, y0, fw, fh, 0, 0, outW, outH);
+        resolve(fb.toDataURL("image/jpeg", 0.92));
+      };
 
-          if (ix >= 0 && ix < img.naturalWidth && iy >= 0 && iy < img.naturalHeight) {
-            const sIdx = (iy * SW + ix) * 4;
-            dstData.data[dIdx]     = srcData.data[sIdx];
-            dstData.data[dIdx + 1] = srcData.data[sIdx + 1];
-            dstData.data[dIdx + 2] = srcData.data[sIdx + 2];
-            dstData.data[dIdx + 3] = 255;
-          }
-        }
-      }
-
-      dstCtx.putImageData(dstData, 0, 0);
-      resolve(dstCanvas.toDataURL("image/jpeg", 0.92));
+      // Transfer srcBuf zero-copy into the worker
+      worker.postMessage(
+        { srcBuf, srcW: img.naturalWidth, srcH: img.naturalHeight, outW, outH, tl, tr, br, bl },
+        [srcBuf]
+      );
     };
     img.src = src;
   });
 }
 
-// ─── Apply filter and adjustments to a data URL ───────────────────────────────
+// ─── Apply filter and adjustments — GPU-accelerated via ctx.filter ───────────
+// One drawImage call with ctx.filter replaces the entire per-pixel JS loop
 function applyFilter(src: string, filter: FilterType, adj: Adjustments): Promise<string> {
   return new Promise((resolve) => {
-    if (filter === "original" && adj.brightness === 0 && adj.contrast === 0 && adj.saturation === 0) { 
-      resolve(src); 
-      return; 
+    if (filter === "original" && adj.brightness === 0 && adj.contrast === 0 && adj.saturation === 0) {
+      resolve(src);
+      return;
     }
-    
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
+      canvas.width  = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext("2d")!;
+
+      // Build CSS filter string — browser/GPU handles all the maths
+      let f = "";
+      if (adj.brightness !== 0) f += `brightness(${1 + adj.brightness / 100}) `;
+      if (adj.contrast   !== 0) f += `contrast(${1 + adj.contrast / 100}) `;
+      if (adj.saturation !== 0) f += `saturate(${1 + adj.saturation / 100}) `;
+      if (filter === "grayscale")      f += "grayscale(100%) ";
+      else if (filter === "bw")        f += "grayscale(100%) contrast(1000%) ";
+      else if (filter === "magic")     f += "contrast(150%) brightness(110%) saturate(120%) ";
+      else if (filter === "highlight") f += "contrast(200%) brightness(120%) grayscale(20%) ";
+
+      if (f.trim()) ctx.filter = f.trim();
       ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-
-      const C = adj.contrast;
-      // When C === 0, factor must be exactly 1 to avoid any darkening
-      const contrastFactor = C === 0 ? 1 : (259 * (C + 255)) / (255 * (259 - C));
-      const S = adj.saturation / 100;
-
-      for (let i = 0; i < data.length; i += 4) {
-        let r = data[i], g = data[i + 1], b = data[i + 2];
-
-        // 1. Filter
-        const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-        if (filter === "grayscale") {
-          r = g = b = gray;
-        } else if (filter === "bw") {
-          const v = gray > 128 ? 255 : 0;
-          r = g = b = v;
-        } else if (filter === "magic") {
-          const c = 1.5, bright = 10;
-          r = Math.min(255, Math.max(0, c * (r - 128) + 128 + bright));
-          g = Math.min(255, Math.max(0, c * (g - 128) + 128 + bright));
-          b = Math.min(255, Math.max(0, c * (b - 128) + 128));
-        } else if (filter === "highlight") {
-          const c = 2.0;
-          r = Math.min(255, Math.max(0, c * (r - 128) + 128));
-          g = Math.min(255, Math.max(0, c * (g - 128) + 128));
-          b = Math.min(255, Math.max(0, c * (b - 128) + 128));
-        }
-
-        // 2. Adjustments
-        r += adj.brightness;
-        g += adj.brightness;
-        b += adj.brightness;
-
-        r = contrastFactor * (r - 128) + 128;
-        g = contrastFactor * (g - 128) + 128;
-        b = contrastFactor * (b - 128) + 128;
-
-        if (S !== 0) {
-          const curGray = 0.299 * r + 0.587 * g + 0.114 * b;
-          r = curGray + (r - curGray) * (1 + S);
-          g = curGray + (g - curGray) * (1 + S);
-          b = curGray + (b - curGray) * (1 + S);
-        }
-
-        data[i] = Math.min(255, Math.max(0, r));
-        data[i + 1] = Math.min(255, Math.max(0, g));
-        data[i + 2] = Math.min(255, Math.max(0, b));
-      }
-      ctx.putImageData(imageData, 0, 0);
       resolve(canvas.toDataURL("image/jpeg", 0.92));
     };
     img.src = src;
@@ -613,10 +603,11 @@ export function CropEditor() {
         </button>
       </div>
 
-      {/* Image + overlay */}
+      {/* Image + overlay — touch-none prevents page scroll while dragging crop handles */}
       <div
         ref={containerRef}
-        className="flex-1 relative overflow-hidden bg-black"
+        className="flex-1 relative overflow-hidden bg-black pb-[140px] md:pb-0"
+        style={{ touchAction: 'none' }}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
