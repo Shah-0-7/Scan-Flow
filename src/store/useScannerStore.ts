@@ -1,16 +1,17 @@
 import { create } from 'zustand';
-import { ScannedPage, Point } from '@/types';
+import { ScannedPage, Point, RecentDocument } from '@/types';
 
 interface ScannerState {
   pages: ScannedPage[];
   currentPageId: string | null;
-  scannerMode: 'capture' | 'edit' | 'preview' | 'export';
+  scannerMode: 'home' | 'capture' | 'edit' | 'preview' | 'export';
   editReturnMode: 'preview' | 'export';
   openCvReady: boolean;
+  recentDocuments: RecentDocument[];
   
   // Actions
   setOpenCvReady: (ready: boolean) => void;
-  setScannerMode: (mode: 'capture' | 'edit' | 'preview' | 'export') => void;
+  setScannerMode: (mode: 'home' | 'capture' | 'edit' | 'preview' | 'export') => void;
   setEditReturnMode: (mode: 'preview' | 'export') => void;
   addPage: (page: Omit<ScannedPage, 'id'>) => void;
   updatePage: (id: string, updates: Partial<ScannedPage>) => void;
@@ -18,14 +19,16 @@ interface ScannerState {
   setCurrentPageId: (id: string | null) => void;
   reorderPages: (activeId: string, overId: string) => void;
   clearPages: () => void;
+  addRecentDocument: (doc: RecentDocument) => void;
 }
 
 export const useScannerStore = create<ScannerState>((set) => ({
   pages: [],
   currentPageId: null,
-  scannerMode: 'preview',
+  scannerMode: 'home',
   editReturnMode: 'preview',
   openCvReady: false,
+  recentDocuments: [],
 
   setOpenCvReady: (ready) => set({ openCvReady: ready }),
   setScannerMode: (mode) => set({ scannerMode: mode }),
@@ -73,4 +76,9 @@ export const useScannerStore = create<ScannerState>((set) => ({
   }),
 
   clearPages: () => set({ pages: [], currentPageId: null, scannerMode: 'preview' }),
+  addRecentDocument: (doc) => set((state) => {
+    // Keep only the 10 most recent
+    const newRecent = [doc, ...state.recentDocuments].slice(0, 10);
+    return { recentDocuments: newRecent };
+  }),
 }));

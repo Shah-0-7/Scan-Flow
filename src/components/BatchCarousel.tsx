@@ -71,7 +71,7 @@ export function BatchCarousel() {
               croppedImage: null,
               cropPoints: null,
               filter: 'original',
-              adjustments: { brightness: 100, contrast: 100, saturation: 100 }
+              adjustments: { brightness: 0, contrast: 0, saturation: 0 }
             });
           }
         };

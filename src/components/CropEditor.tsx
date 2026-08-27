@@ -1,7 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useScannerStore } from "@/store/useScannerStore";
-import { X, RotateCcw, Check, Wand2, Scan, SlidersHorizontal, Crop, Square, Type } from "lucide-react";
+import { X, RotateCcw, Check, Wand2, Scan, SlidersHorizontal, Crop, Square, Type, Sparkles } from "lucide-react";
 import { FilterType, Adjustments } from "@/types";
 
 interface Point { x: number; y: number; }
@@ -178,7 +178,8 @@ function applyFilter(src: string, filter: FilterType, adj: Adjustments): Promise
       const data = imageData.data;
 
       const C = adj.contrast;
-      const contrastFactor = (259 * (C + 255)) / (255 * (259 - C));
+      // When C === 0, factor must be exactly 1 to avoid any darkening
+      const contrastFactor = C === 0 ? 1 : (259 * (C + 255)) / (255 * (259 - C));
       const S = adj.saturation / 100;
 
       for (let i = 0; i < data.length; i += 4) {
@@ -241,6 +242,7 @@ export function CropEditor() {
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
   const [corners, setCorners]         = useState<Point[]>([]);
   const [activeCorner, setActiveCorner] = useState<number | null>(null);
+  const dragRef = useRef<{ x: number, y: number, originalCorners: Point[] } | null>(null);
   const [lockedRatio, setLockedRatio]   = useState<number | null>(null);
   
   const [activeTab, setActiveTab]     = useState<Tab>('crop');
@@ -249,36 +251,13 @@ export function CropEditor() {
   
   const [processing, setProcessing]   = useState(false);
   const [currentSrc, setCurrentSrc]   = useState<string>("");
-
-  const [baseWarped, setBaseWarped]   = useState<string | null>(null);
+  const [mobileEditOpen, setMobileEditOpen] = useState(false);
+  const [mobileEditTab, setMobileEditTab]   = useState<'filters' | 'adjustments'>('filters');
+  const [activeAdjustment, setActiveAdjustment] = useState<'brightness' | 'contrast' | 'saturation' | null>('brightness');
 
   useEffect(() => {
     if (page) setCurrentSrc(page.originalImage);
   }, []);
-
-  useEffect(() => {
-    if ((activeTab === 'filter' || activeTab === 'adjust') && corners.length === 4) {
-      const generateBaseWarped = async () => {
-        try {
-          const outW = Math.round(Math.hypot(
-            corners[1].x - corners[0].x, corners[1].y - corners[0].y
-          ));
-          const outH = Math.round(Math.hypot(
-            corners[3].x - corners[0].x, corners[3].y - corners[0].y
-          ));
-          // Downscale for faster preview generation
-          const scale = Math.min(1, 800 / Math.max(outW, outH));
-          const warped = await warpPerspective(currentSrc, corners, Math.max(outW * scale, 100), Math.max(outH * scale, 100));
-          setBaseWarped(warped);
-        } catch (e) {
-          console.error("Preview warp failed", e);
-        }
-      };
-      generateBaseWarped();
-    } else {
-      setBaseWarped(null);
-    }
-  }, [activeTab, corners, currentSrc]);
 
   const getPreviewStyle = () => {
     let cssFilter = "";
@@ -294,27 +273,42 @@ export function CropEditor() {
     return cssFilter.trim() ? { filter: cssFilter } : {};
   };
 
-  const computeDisplay = useCallback((imgEl: HTMLImageElement) => {
+  const computeDisplay = useCallback((imgEl?: HTMLImageElement) => {
     if (!containerRef.current) return;
     const cw = containerRef.current.clientWidth;
     const ch = containerRef.current.clientHeight;
-    const iw = imgEl.naturalWidth;
-    const ih = imgEl.naturalHeight;
+    
+    // Use the passed image element, or fall back to naturalSize state
+    const iw = imgEl ? imgEl.naturalWidth : naturalSize.w;
+    const ih = imgEl ? imgEl.naturalHeight : naturalSize.h;
+    
     if (!iw || !ih) return;
     const scale = Math.min(cw / iw, ch / ih);
     const dw = iw * scale, dh = ih * scale;
     const offX = (cw - dw) / 2, offY = (ch - dh) / 2;
     setDisplaySize({ w: dw, h: dh, offX, offY });
-    setNaturalSize({ w: iw, h: ih });
-  }, []);
+    
+    if (imgEl) {
+      setNaturalSize({ w: iw, h: ih });
+    }
+  }, [naturalSize]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver(() => {
+      computeDisplay();
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [computeDisplay]);
 
   const setDefaultCorners = useCallback((iw: number, ih: number) => {
-    const p = 0.05;
+    // Default to full image bounds so no auto-crop is applied
     setCorners([
-      { x: iw * p,       y: ih * p },
-      { x: iw * (1 - p), y: ih * p },
-      { x: iw * (1 - p), y: ih * (1 - p) },
-      { x: iw * p,       y: ih * (1 - p) },
+      { x: 0,  y: 0  },
+      { x: iw, y: 0  },
+      { x: iw, y: ih },
+      { x: 0,  y: ih },
     ]);
   }, []);
 
@@ -394,6 +388,32 @@ export function CropEditor() {
     const rect = containerRef.current.getBoundingClientRect();
     const pt = toImage(e.clientX - rect.left, e.clientY - rect.top);
     
+    // Handle moving the entire crop box
+    if (activeCorner === 4 && dragRef.current) {
+      const dx = pt.x - dragRef.current.x;
+      const dy = pt.y - dragRef.current.y;
+      const { originalCorners } = dragRef.current;
+      
+      const minX = Math.min(...originalCorners.map(c => c.x));
+      const minY = Math.min(...originalCorners.map(c => c.y));
+      const maxX = Math.max(...originalCorners.map(c => c.x));
+      const maxY = Math.max(...originalCorners.map(c => c.y));
+      
+      // Clamp shift to image bounds
+      let shiftX = dx;
+      let shiftY = dy;
+      if (minX + shiftX < 0) shiftX = -minX;
+      if (minY + shiftY < 0) shiftY = -minY;
+      if (maxX + shiftX > naturalSize.w) shiftX = naturalSize.w - maxX;
+      if (maxY + shiftY > naturalSize.h) shiftY = naturalSize.h - maxY;
+      
+      setCorners(originalCorners.map(c => ({
+        x: c.x + shiftX,
+        y: c.y + shiftY
+      })));
+      return;
+    }
+
     if (lockedRatio) {
        const newCorners = [...corners];
        let newW, newH;
@@ -490,13 +510,21 @@ export function CropEditor() {
     if (!page || corners.length < 4 || !naturalSize.w) return;
     setProcessing(true);
     try {
-      const outW = Math.round(Math.hypot(
-        corners[1].x - corners[0].x, corners[1].y - corners[0].y
-      ));
-      const outH = Math.round(Math.hypot(
-        corners[3].x - corners[0].x, corners[3].y - corners[0].y
-      ));
-      const warped   = await warpPerspective(currentSrc, corners, Math.max(outW, 100), Math.max(outH, 100));
+      // Check if corners cover the full image — if so, skip the expensive warp
+      const isFullImage =
+        corners[0].x === 0 && corners[0].y === 0 &&
+        corners[1].x === naturalSize.w && corners[1].y === 0 &&
+        corners[2].x === naturalSize.w && corners[2].y === naturalSize.h &&
+        corners[3].x === 0 && corners[3].y === naturalSize.h;
+
+      const warped = isFullImage
+        ? currentSrc
+        : await warpPerspective(
+            currentSrc, corners,
+            Math.max(Math.round(Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y)), 100),
+            Math.max(Math.round(Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y)), 100)
+          );
+
       const filtered = await applyFilter(warped, filter, adjustments);
       updatePage(page.id, { croppedImage: filtered, cropPoints: corners, filter, adjustments });
       setScannerMode(editReturnMode);
@@ -529,8 +557,8 @@ export function CropEditor() {
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 bg-surface border-b border-border flex-shrink-0 z-10 relative">
+      {/* Desktop Header */}
+      <div className="hidden md:flex items-center justify-between px-6 py-4 bg-surface border-b border-border flex-shrink-0 z-10 relative">
         <button onClick={() => setScannerMode(editReturnMode)} className="p-2 rounded-full hover:bg-surface-hover transition-colors text-gray-400 hover:text-white">
           <X size={20} />
         </button>
@@ -571,14 +599,31 @@ export function CropEditor() {
         </div>
       </div>
 
+      {/* Mobile Header */}
+      <div className="md:hidden flex items-center justify-between px-4 py-4 bg-transparent flex-shrink-0 z-20 absolute top-0 w-full">
+        <button onClick={() => setScannerMode(editReturnMode)} className="text-white">
+          <X size={24} />
+        </button>
+        <div className="text-center">
+          <div className="text-[10px] font-bold text-gray-400 tracking-widest uppercase">EDITING</div>
+          <div className="text-white font-semibold text-sm truncate max-w-[200px]">Page {pages.findIndex(p => p.id === page.id) + 1}</div>
+        </div>
+        <button onClick={() => setMobileEditOpen(true)} className="text-primary">
+          <Sparkles size={24} />
+        </button>
+      </div>
+
       {/* Image + overlay */}
       <div
         ref={containerRef}
-        className="flex-1 relative overflow-hidden"
+        className="flex-1 relative overflow-hidden bg-black"
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
+        {/* Mobile Grid Background */}
+        <div className="md:hidden absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#333 1px, transparent 1px), linear-gradient(90deg, #333 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+
         {currentSrc && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -586,7 +631,7 @@ export function CropEditor() {
             src={currentSrc}
             alt="document to crop"
             onLoad={onImgLoad}
-            className={`absolute pointer-events-none select-none object-contain ${activeTab !== 'crop' ? 'opacity-50 blur-sm transition-all duration-300' : 'opacity-100 transition-all duration-300'}`}
+            className="absolute pointer-events-none select-none object-contain transition-[width,height,left,top] duration-300"
             style={{
               left: displaySize.offX,
               top: displaySize.offY,
@@ -598,7 +643,7 @@ export function CropEditor() {
         )}
 
         {/* SVG crop overlay (Only show when crop tab is active) */}
-        {imgLoaded && screenCorners.length === 4 && activeTab === 'crop' && (
+        {imgLoaded && screenCorners.length === 4 && activeTab === 'crop' && !mobileEditOpen && (
           <svg className="absolute inset-0 w-full h-full" style={{ overflow: "visible" }}>
             <defs>
               <mask id="crop-mask">
@@ -611,6 +656,23 @@ export function CropEditor() {
             </defs>
 
             <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)" mask="url(#crop-mask)" />
+            
+            {/* Center polygon for dragging the entire crop box */}
+            <polygon 
+              points={screenCorners.map(p => `${p.x},${p.y}`).join(" ")} 
+              fill="transparent" 
+              style={{ cursor: lockedRatio ? "move" : "default", pointerEvents: "all" }}
+              onPointerDown={(e) => {
+                if (!lockedRatio) return; // Only allow dragging center if ratio is locked (as requested)
+                e.preventDefault(); e.stopPropagation();
+                setActiveCorner(4);
+                if (!containerRef.current) return;
+                const rect = containerRef.current.getBoundingClientRect();
+                const pt = toImage(e.clientX - rect.left, e.clientY - rect.top);
+                dragRef.current = { x: pt.x, y: pt.y, originalCorners: [...corners] };
+                (e.target as Element).setPointerCapture(e.pointerId);
+              }}
+            />
 
             {[1/3, 2/3].map(t => {
               const top   = { x: screenCorners[0].x + (screenCorners[1].x - screenCorners[0].x) * t, y: screenCorners[0].y + (screenCorners[1].y - screenCorners[0].y) * t };
@@ -631,29 +693,19 @@ export function CropEditor() {
               <g key={i} style={{ cursor: "grab" }}>
                 <circle cx={sc.x} cy={sc.y} r={20} fill="transparent" onPointerDown={(e) => onPointerDown(i, e as any)} style={{ pointerEvents: "all" }} />
                 <circle cx={sc.x} cy={sc.y} r={10} fill="rgba(242,227,198,0.2)" stroke="#f2e3c6" strokeWidth="2.5" style={{ pointerEvents: "none" }} />
+                {/* Mobile corner accents */}
+                <circle cx={sc.x} cy={sc.y} r={4} fill="#f2e3c6" className="md:hidden" style={{ pointerEvents: "none" }} />
               </g>
             ))}
+            
+            {/* Mobile edge grabbers */}
+            <g className="md:hidden">
+               <rect x={(screenCorners[0].x + screenCorners[3].x)/2 - 4} y={(screenCorners[0].y + screenCorners[3].y)/2 - 12} width="8" height="24" rx="4" fill="transparent" stroke="#f2e3c6" strokeWidth="1.5" />
+               <rect x={(screenCorners[1].x + screenCorners[2].x)/2 - 4} y={(screenCorners[1].y + screenCorners[2].y)/2 - 12} width="8" height="24" rx="4" fill="transparent" stroke="#f2e3c6" strokeWidth="1.5" />
+            </g>
           </svg>
         )}
 
-        {/* Preview of cropped image when in filter or adjust tabs */}
-        {(activeTab === 'filter' || activeTab === 'adjust') && (
-           <div className="absolute inset-0 flex items-center justify-center p-8 pointer-events-none z-10 bg-black/40">
-              {baseWarped ? (
-                <img 
-                  src={baseWarped} 
-                  alt="Preview" 
-                  className="max-w-full max-h-full object-contain shadow-2xl rounded-sm border border-white/10" 
-                  style={getPreviewStyle()}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center text-gray-400">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-2"></div>
-                  Generating preview...
-                </div>
-              )}
-           </div>
-        )}
 
         {!imgLoaded && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-400 animate-pulse">
@@ -662,8 +714,11 @@ export function CropEditor() {
         )}
       </div>
 
-      {/* Contextual Bottom Bar */}
-      <div className="flex-shrink-0 bg-surface border-t border-border px-6 py-6 h-32 flex items-center justify-center relative transition-all">
+      {/* Spacer to push image up when mobile sheet is open */}
+      <div className={`md:hidden transition-all duration-300 bg-black ${mobileEditOpen ? (mobileEditTab === 'filters' ? 'h-[160px]' : 'h-[320px]') : 'h-0'}`} />
+
+      {/* Desktop Contextual Bottom Bar */}
+      <div className="hidden md:flex flex-shrink-0 bg-surface border-t border-border px-6 py-6 h-32 items-center justify-center relative transition-all">
         
         {/* Crop Tab Content */}
         {activeTab === 'crop' && (
@@ -752,8 +807,179 @@ export function CropEditor() {
             </div>
           </div>
         )}
-
       </div>
+
+      {/* Mobile Floating Bottom Action Panel */}
+      <div className="md:hidden absolute bottom-8 w-full flex flex-col items-center gap-3 px-4 z-20">
+        {/* Aspect Ratio Buttons */}
+        <div className="flex gap-2 overflow-x-auto hide-scrollbar w-full justify-center">
+          {RATIOS.map(r => (
+            <button
+              key={r.label}
+              onClick={() => applyAspectRatio(r.value)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                lockedRatio === r.value || (lockedRatio === null && r.value === 'free')
+                  ? 'bg-primary/20 text-primary border-primary/50'
+                  : 'bg-black/50 text-gray-300 border-white/10 backdrop-blur-sm'
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+          <button
+            onClick={handleAutoDetect}
+            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-black/50 text-primary border-primary/30 backdrop-blur-sm flex items-center gap-1"
+          >
+            <Scan size={12} /> Auto
+          </button>
+        </div>
+
+        {/* Rotate & Confirm */}
+        <div className="bg-surface border border-border/50 rounded-2xl p-2 flex gap-2 shadow-2xl backdrop-blur-md w-[80%] max-w-[300px]">
+          <button onClick={handleRotate} className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-white">
+            <RotateCcw size={20} />
+            <span className="text-xs font-medium">Rotate</span>
+          </button>
+          <button 
+            onClick={handleConfirm}
+            disabled={processing || corners.length < 4}
+            className="flex-[1.5] bg-primary text-primary-foreground rounded-xl flex flex-col items-center justify-center py-3 disabled:opacity-50"
+          >
+            <Crop size={20} />
+            <span className="text-xs font-semibold">{processing ? "Saving…" : "Confirm Crop"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Mobile Edit Bottom Sheet */}
+      {mobileEditOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setMobileEditOpen(false)}
+          />
+
+          {/* Sheet */}
+          <div className="relative bg-surface rounded-t-3xl shadow-2xl border-t border-border/50 z-10 pb-8">
+            {/* Handle */}
+            <div className="flex justify-center pt-3 mb-2">
+              <div className="w-10 h-1.5 rounded-full bg-gray-600"></div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex mx-4 mb-4 bg-background rounded-xl p-1">
+              <button
+                onClick={() => setMobileEditTab('filters')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  mobileEditTab === 'filters' ? 'bg-surface text-white shadow' : 'text-gray-400'
+                }`}
+              >
+                <Wand2 size={14} /> Filters
+              </button>
+              <button
+                onClick={() => setMobileEditTab('adjustments')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
+                  mobileEditTab === 'adjustments' ? 'bg-surface text-white shadow' : 'text-gray-400'
+                }`}
+              >
+                <SlidersHorizontal size={14} /> Adjust
+              </button>
+            </div>
+
+            {/* Filters Tab */}
+            {mobileEditTab === 'filters' && (
+              <div className="px-4">
+                <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-2">
+                  {FILTERS.map(f => (
+                    <button
+                      key={f.key}
+                      onClick={() => setFilter(f.key)}
+                      className={`flex-shrink-0 w-20 h-16 rounded-2xl flex items-center justify-center text-xs font-semibold border-2 transition-all ${
+                        filter === f.key
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-gray-400 hover:border-gray-500"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Adjustments Tab */}
+            {mobileEditTab === 'adjustments' && (
+              <div className="px-4">
+                {/* Dynamic Slider */}
+                {activeAdjustment && (
+                  <div className="mb-6 animate-in fade-in slide-in-from-bottom-2">
+                    <div className="flex justify-between text-xs text-gray-400 mb-2">
+                      <span className="font-semibold text-white capitalize">{activeAdjustment}</span>
+                      <span className="text-primary font-bold">
+                        {adjustments[activeAdjustment] > 0 ? `+${adjustments[activeAdjustment]}` : adjustments[activeAdjustment]}
+                      </span>
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="range" min="-100" max="100"
+                        value={adjustments[activeAdjustment]}
+                        onChange={(e) => setAdjustments(prev => ({ ...prev, [activeAdjustment]: parseInt(e.target.value) }))}
+                        className="w-full h-1.5 accent-primary rounded-full appearance-none outline-none"
+                        style={{
+                          background: adjustments[activeAdjustment] > 0
+                            ? `linear-gradient(to right, #333 50%, #f2e3c6 50%, #f2e3c6 ${(adjustments[activeAdjustment] + 100) / 2}%, #333 ${(adjustments[activeAdjustment] + 100) / 2}%)`
+                            : `linear-gradient(to right, #333 ${(adjustments[activeAdjustment] + 100) / 2}%, #f2e3c6 ${(adjustments[activeAdjustment] + 100) / 2}%, #f2e3c6 50%, #333 50%)`
+                        }}
+                      />
+                      {/* Center tick mark */}
+                      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-0.5 h-3 bg-white/30 rounded-full pointer-events-none"></div>
+                    </div>
+                    <div className="flex justify-between text-[10px] text-gray-600 mt-2">
+                      <span>-100</span><span>0</span><span>+100</span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Adjustment Selection Buttons */}
+                <div className="flex gap-4 overflow-x-auto hide-scrollbar pb-2">
+                  {(['brightness', 'contrast', 'saturation'] as const).map(adj => (
+                    <button
+                      key={adj}
+                      onClick={() => setActiveAdjustment(activeAdjustment === adj ? null : adj)}
+                      className={`flex-shrink-0 w-24 h-16 rounded-2xl flex items-center justify-center border-2 transition-all ${
+                        activeAdjustment === adj
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border bg-background text-gray-400 hover:border-gray-500"
+                      }`}
+                    >
+                      <span className="text-[10px] uppercase tracking-wider font-bold">{adj}</span>
+                    </button>
+                  ))}
+                </div>
+                
+                {/* Reset */}
+                <button
+                  onClick={() => setAdjustments({ brightness: 0, contrast: 0, saturation: 0 })}
+                  className="w-full text-xs text-gray-400 mt-4 border border-border rounded-xl py-2 hover:text-white hover:border-gray-500 transition-colors"
+                >
+                  Reset All
+                </button>
+              </div>
+            )}
+
+            {/* Apply Button */}
+            <div className="px-4 mt-5">
+              <button
+                onClick={() => setMobileEditOpen(false)}
+                className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl shadow-[0_4px_14px_0_rgba(242,227,198,0.3)] hover:bg-[#e0d0b0] transition-colors"
+              >
+                Apply &amp; Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

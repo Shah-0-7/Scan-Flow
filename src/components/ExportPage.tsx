@@ -1,7 +1,7 @@
 "use client";
 import { useScannerStore } from "@/store/useScannerStore";
-import { LayoutGrid, List, FileText, FileArchive, Upload, Camera } from "lucide-react";
-import { useState, useEffect, useRef } from "react";
+import { LayoutGrid, List, FileText, FileArchive, Upload, Camera, ArrowLeft, Scan } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { jsPDF } from "jspdf";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
@@ -22,12 +22,12 @@ function SortableGridItem({ page, index, onCameraClick, onEdit }: any) {
     <div 
       ref={setNodeRef} 
       style={style}
-      className="group relative aspect-[3/4] bg-surface rounded-xl overflow-hidden border border-border hover:border-primary transition-colors cursor-grab active:cursor-grabbing"
+      className="group relative aspect-[3/4] min-w-[120px] md:min-w-0 bg-surface rounded-xl overflow-hidden border border-border hover:border-primary transition-colors cursor-grab active:cursor-grabbing snap-center"
       {...attributes}
       {...listeners}
     >
       <img src={page.croppedImage || page.originalImage} className="w-full h-full object-cover pointer-events-none select-none" />
-      <div className="absolute top-2 left-2 bg-black/80 rounded-full px-2 py-0.5 text-xs font-medium text-white backdrop-blur-md z-10">P.{index + 1}</div>
+      <div className="hidden md:block absolute top-2 left-2 bg-black/80 rounded-full px-2 py-0.5 text-xs font-medium text-white backdrop-blur-md z-10">P.{index + 1}</div>
 
       {/* Edit crop button on hover */}
       <div className="absolute inset-0 pointer-events-none group-hover:bg-black/40 transition-colors z-10 flex items-center justify-center">
@@ -40,15 +40,20 @@ function SortableGridItem({ page, index, onCameraClick, onEdit }: any) {
         </button>
       </div>
 
-      <div className="absolute bottom-0 w-full bg-surface border-t border-border p-2 text-xs text-center text-gray-300 truncate pointer-events-none select-none z-20">
+      <div className="hidden md:block absolute bottom-0 w-full bg-surface border-t border-border p-2 text-xs text-center text-gray-300 truncate pointer-events-none select-none z-20">
         Page_{index+1}.jpg
+      </div>
+
+      {/* Mobile Page Indicator */}
+      <div className="md:hidden absolute -bottom-6 w-full text-center text-xs font-medium text-gray-400">
+        P.{index + 1}
       </div>
     </div>
   );
 }
 
 export function ExportPage() {
-  const { pages, setScannerMode, reorderPages, addPage, setCurrentPageId, setEditReturnMode } = useScannerStore();
+  const { pages, setScannerMode, reorderPages, addPage, setCurrentPageId, setEditReturnMode, addRecentDocument } = useScannerStore();
   const [format, setFormat] = useState<'pdf' | 'zip'>('pdf');
   const [docName, setDocName] = useState('ScanFlow_Document');
   const [quality, setQuality] = useState(0.8);
@@ -70,7 +75,7 @@ export function ExportPage() {
               croppedImage: null,
               cropPoints: null,
               filter: 'original',
-              adjustments: { brightness: 100, contrast: 100, saturation: 100 }
+              adjustments: { brightness: 0, contrast: 0, saturation: 0 }
             });
           }
         };
@@ -111,6 +116,8 @@ export function ExportPage() {
     });
   };
 
+
+
   useEffect(() => {
     let isMounted = true;
     if (pages.length === 0) {
@@ -144,6 +151,7 @@ export function ExportPage() {
       }
     };
     
+    // Debounce to prevent freezing the UI while sliding
     const timeout = setTimeout(calculateSize, 300);
     return () => {
       isMounted = false;
@@ -159,8 +167,18 @@ export function ExportPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
+
+
   const handleExport = async () => {
     if (pages.length === 0) return;
+    
+    addRecentDocument({
+      id: Date.now().toString(),
+      name: docName,
+      date: new Date().toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
+      size: formatSize(estimatedSize || 0),
+      type: format
+    });
     
     if (format === 'pdf') {
       const doc = new jsPDF();
@@ -203,22 +221,40 @@ export function ExportPage() {
     }
   };
 
+
+
   return (
-    <div className="flex-1 flex overflow-hidden bg-background">
+    <div className="flex-1 flex flex-col md:flex-row overflow-y-auto md:overflow-hidden bg-background relative">
+      
+      {/* Mobile Top Bar */}
+      <div className="md:hidden flex items-center justify-between px-4 py-4 bg-background flex-shrink-0 z-20">
+        <button onClick={() => setScannerMode('preview')} className="text-white">
+          <ArrowLeft size={24} />
+        </button>
+        <div className="bg-primary/20 p-1.5 rounded-lg flex items-center justify-center">
+          <Scan size={20} className="text-primary" />
+        </div>
+      </div>
+
       {/* Batch Queue Area */}
-      <div className="flex-1 p-8 overflow-y-auto">
-        <div className="flex justify-between items-end mb-6">
+      <div className="flex-none md:flex-1 p-4 md:p-8 overflow-visible md:overflow-y-auto">
+        <div className="flex justify-between items-start md:items-end mb-6">
           <div>
-            <h2 className="text-3xl font-bold mb-1">Batch Queue</h2>
-            <p className="text-gray-400 text-sm">{pages.length} pages ready for export. Drag to reorder.</p>
+            <div className="flex items-center gap-3 mb-1">
+              <h2 className="text-2xl md:text-3xl font-bold text-white">Batch Queue</h2>
+              <span className="md:hidden bg-surface border border-border/50 text-gray-300 text-xs px-2 py-0.5 rounded-full font-medium shadow-sm">
+                {pages.length} Pages
+              </span>
+            </div>
+            <p className="text-gray-400 text-xs md:text-sm max-w-[280px] md:max-w-full">Review and configure export settings for your document batch.</p>
           </div>
-          <div className="flex gap-2 text-gray-400">
+          <div className="hidden md:flex gap-2 text-gray-400">
             <button className="p-2 rounded-lg bg-surface hover:text-white transition-colors"><LayoutGrid size={20} /></button>
             <button className="p-2 rounded-lg hover:bg-surface hover:text-white transition-colors"><List size={20} /></button>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
+        <div className="flex flex-row md:grid md:grid-cols-4 lg:grid-cols-5 gap-4 md:gap-6 overflow-x-auto md:overflow-visible hide-scrollbar snap-x pb-8 md:pb-0 px-2 md:px-0 -mx-2 md:mx-0">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={pages.map(p => p.id)} strategy={rectSortingStrategy}>
               {pages.map((page, i) => (
@@ -237,96 +273,105 @@ export function ExportPage() {
             </SortableContext>
           </DndContext>
           
-          <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] bg-surface/30 border-2 border-dashed border-gray-400 rounded-xl flex flex-col items-center justify-center text-gray-300 hover:bg-white hover:border-white hover:text-gray-900 transition-all cursor-pointer">
+          <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] min-w-[120px] md:min-w-0 bg-surface/30 border-2 border-dashed border-gray-400 rounded-xl flex flex-col items-center justify-center text-gray-300 hover:bg-white hover:border-white hover:text-gray-900 transition-all cursor-pointer snap-center">
             <Upload size={24} className="mb-2" />
-            <span className="font-medium">Add Page</span>
+            <span className="font-medium text-sm">Add Page</span>
           </button>
-          <button onClick={() => setScannerMode('capture')} className="aspect-[3/4] bg-primary/5 border-2 border-dashed border-primary/50 rounded-xl flex flex-col items-center justify-center text-primary hover:bg-primary hover:text-primary-foreground transition-colors">
+          <button onClick={() => setScannerMode('capture')} className="aspect-[3/4] min-w-[120px] md:min-w-0 bg-primary/5 border-2 border-dashed border-primary/50 rounded-xl flex flex-col items-center justify-center text-primary hover:bg-primary hover:text-primary-foreground transition-colors snap-center">
             <Camera size={24} className="mb-2" />
-            <span className="font-medium">Scan Page</span>
+            <span className="font-medium text-sm">Scan Page</span>
           </button>
         </div>
         <input type="file" multiple accept="image/*" className="hidden" ref={fileInputRef} onChange={handleFileUpload} />
       </div>
+      
+      {/* Mobile Divider */}
+      <div className="md:hidden border-t border-border/50 mx-4 my-2"></div>
 
       {/* Export Settings Sidebar */}
-      <div className="w-80 border-l border-border bg-surface p-6 flex flex-col overflow-y-auto">
-        <h3 className="text-xl font-bold mb-2">Export Settings</h3>
-        <p className="text-sm text-gray-400 mb-8">Configure final output before saving.</p>
+      <div className="w-full md:w-80 md:border-l border-border bg-transparent md:bg-surface p-4 md:p-6 flex flex-col md:overflow-y-auto flex-none md:flex-1 pb-24 md:pb-6 relative">
+        <h3 className="text-xl font-bold mb-4 text-white">Export Settings</h3>
+        <p className="text-sm text-gray-400 mb-8 hidden md:block">Configure final output before saving.</p>
 
-        <div className="space-y-6 flex-1">
+        <div className="space-y-8 flex-1">
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">Document Name</label>
+            <label className="text-xs text-gray-300 md:text-gray-400 font-mono tracking-widest mb-2 block">Document Name</label>
             <input 
               type="text" 
               value={docName}
               onChange={(e) => setDocName(e.target.value)}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary transition-colors"
+              className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-primary transition-colors shadow-inner"
             />
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">Output Format</label>
+            <label className="text-xs text-gray-300 md:text-gray-400 font-mono tracking-widest mb-2 block">Output Format</label>
             <div className="grid grid-cols-2 gap-3">
               <button 
                 onClick={() => setFormat('pdf')}
                 className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-colors ${
-                  format === 'pdf' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border text-gray-400 hover:text-white hover:border-gray-500'
+                  format === 'pdf' ? 'bg-transparent text-primary border-primary bg-primary/5' : 'bg-surface border-border text-gray-400 hover:text-white hover:border-gray-500'
                 }`}
               >
-                <FileText size={24} />
-                <span className="text-sm font-medium">Merge to PDF</span>
+                <FileText size={20} className={format === 'pdf' ? 'text-primary' : 'text-gray-300'} />
+                <span className={`text-xs font-medium ${format === 'pdf' ? 'text-primary' : 'text-gray-300'}`}>Merge to PDF</span>
               </button>
               <button 
                 onClick={() => setFormat('zip')}
                 className={`p-4 rounded-xl border flex flex-col items-center justify-center gap-2 transition-colors ${
-                  format === 'zip' ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border text-gray-400 hover:text-white hover:border-gray-500'
+                  format === 'zip' ? 'bg-transparent text-primary border-primary bg-primary/5' : 'bg-surface border-border text-gray-400 hover:text-white hover:border-gray-500'
                 }`}
               >
-                <FileArchive size={24} />
-                <span className="text-sm font-medium">ZIP Images</span>
+                <FileArchive size={20} className={format === 'zip' ? 'text-primary' : 'text-gray-300'} />
+                <span className={`text-xs font-medium ${format === 'zip' ? 'text-primary' : 'text-gray-300'}`}>ZIP Images</span>
               </button>
             </div>
           </div>
 
           <div>
             <div className="flex justify-between items-center mb-2">
-              <label className="text-xs text-gray-400 uppercase tracking-wider block">Quality</label>
-              <span className="text-xs text-gray-400">
-                {isCalculating ? "Calculating..." : estimatedSize !== null ? `Approx. ${formatSize(estimatedSize)}` : ""}
+              <label className="text-xs text-gray-300 md:text-gray-400 font-mono tracking-widest block">Quality &amp; Size</label>
+              <span className="text-xs text-primary font-bold">
+                {isCalculating ? "Calculating..." : `~${formatSize(estimatedSize || 0)}`}
               </span>
             </div>
             <input 
               type="range" 
               min="0.1" 
               max="1" 
-              step="0.1" 
+              step="0.01" 
               value={quality} 
               onChange={(e) => setQuality(parseFloat(e.target.value))}
               className="w-full accent-primary" 
             />
-            <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+            <div className="flex justify-between text-[10px] text-gray-500 mt-1 uppercase font-semibold tracking-wider">
               <span>Low</span>
+              <span>Med</span>
               <span>High</span>
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-gray-400 uppercase tracking-wider mb-2 block">Page Size Match</label>
-            <select 
-              value={pageSize}
-              onChange={(e) => setPageSize(e.target.value as 'fit' | 'a4' | 'letter')}
-              className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary appearance-none transition-colors"
-            >
-              <option value="fit">Fit Image Size</option>
-              <option value="a4">A4 (210 x 297 mm)</option>
-              <option value="letter">Letter (8.5 x 11 in)</option>
-            </select>
+            <label className="text-xs text-gray-300 md:text-gray-400 font-mono tracking-widest mb-2 block">Page Size</label>
+            <div className="relative">
+              <select 
+                value={pageSize}
+                onChange={(e) => setPageSize(e.target.value as 'fit' | 'a4' | 'letter')}
+                className="w-full bg-surface border border-border rounded-lg px-4 py-3 text-sm text-white focus:outline-none focus:border-primary appearance-none transition-colors shadow-inner"
+              >
+                <option value="fit">Fit Image Size</option>
+                <option value="a4">A4 (210 × 297 mm)</option>
+                <option value="letter">Letter (8.5 × 11 in)</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-gray-400">
+                <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" fillRule="evenodd"></path></svg>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="pt-6 border-t border-border mt-6">
-          <button onClick={handleExport} className="w-full bg-primary text-primary-foreground font-semibold py-3 rounded-xl hover:bg-[#e0d0b0] transition-colors flex items-center justify-center gap-2">
+        <div className="md:pt-6 md:border-t border-border md:mt-6 mt-8">
+          <button onClick={handleExport} className="w-full bg-primary text-primary-foreground font-bold py-3.5 rounded-xl hover:bg-[#e0d0b0] transition-colors flex items-center justify-center gap-2 shadow-[0_4px_14px_0_rgba(242,227,198,0.39)]">
             <Upload size={18} /> Export Document
           </button>
         </div>

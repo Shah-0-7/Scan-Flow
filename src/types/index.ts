@@ -19,3 +19,11 @@ export interface ScannedPage {
   filter: FilterType;
   adjustments: Adjustments | null;
 }
+
+export interface RecentDocument {
+  id: string;
+  name: string;
+  date: string;
+  size: string;
+  type: 'pdf' | 'zip';
+}

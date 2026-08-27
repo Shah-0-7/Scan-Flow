@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Permanent_Marker } from "next/font/google";
 import "./globals.css";
 import Script from "next/script";
 
@@ -10,6 +10,12 @@ const geistSans = Geist({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+const permanentMarker = Permanent_Marker({
+  variable: "--font-permanent-marker",
+  weight: "400",
   subsets: ["latin"],
 });
 
@@ -26,7 +32,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen bg-background text-foreground flex flex-col`}
+        className={`${geistSans.variable} ${geistMono.variable} ${permanentMarker.variable} antialiased min-h-screen bg-background text-foreground flex flex-col`}
       >
         {children}
         <Script 
