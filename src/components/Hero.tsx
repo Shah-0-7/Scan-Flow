@@ -20,9 +20,9 @@ const Hero = memo(function Hero({
       onClick={(e) => onTransition(e.clientX, e.clientY)}
     >
       {/* Top Navigation */}
-      <header className="flex justify-between items-center px-8 py-6 z-10 flex-shrink-0" onClick={stop}>
+      <header className="flex justify-between items-center px-5 py-4 sm:px-8 sm:py-6 z-10 flex-shrink-0" onClick={stop}>
         <div className="text-sm font-black italic tracking-widest text-[#f2e3c6]">SCANFLOW</div>
-        <nav className="flex gap-10 text-sm tracking-widest text-[#cccccc]">
+        <nav className="flex gap-5 sm:gap-10 text-[11px] sm:text-sm tracking-widest text-[#cccccc]">
           <button
             onClick={(e) => { e.stopPropagation(); onTransition(e.clientX, e.clientY); }}
             className="hover:text-white transition-colors font-normal"
@@ -39,20 +39,20 @@ const Hero = memo(function Hero({
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col items-center justify-center relative z-10 pointer-events-none">
+      <main className="flex-1 flex flex-col items-center justify-center relative z-10 pointer-events-none px-4">
         <span
-          className="text-[#f2e3c6] leading-none -rotate-3 inline-block"
-          style={{ fontFamily: "var(--font-permanent-marker), cursive", fontSize: "clamp(4rem, 12vw, 11rem)" }}
+          className="text-[#f2e3c6] leading-none -rotate-3 inline-block text-center"
+          style={{ fontFamily: "var(--font-permanent-marker), cursive", fontSize: "clamp(2.6rem, 11vw, 11rem)" }}
         >
           ScanFlow
         </span>
-        <p className="text-[#888888] tracking-[0.55em] mt-6 uppercase" style={{ fontSize: "10px" }}>
+        <p className="text-[#888888] tracking-[0.4em] sm:tracking-[0.55em] mt-5 uppercase text-[9px] sm:text-[10px]">
           Effortless Scanning
         </p>
       </main>
 
-      {/* Right scroll indicator */}
-      <div className="absolute right-8 top-1/2 -translate-y-1/2 flex flex-col items-center gap-3 z-10 pointer-events-none">
+      {/* Right scroll indicator — hidden on small screens to avoid overlap */}
+      <div className="hidden sm:flex absolute right-8 top-1/2 -translate-y-1/2 flex-col items-center gap-3 z-10 pointer-events-none">
         <div className="w-1.5 h-1.5 rounded-full border border-[#555555]" />
         <div className="w-px h-20 bg-gradient-to-b from-[#444444] to-transparent" />
         <div className="w-1 h-1 rounded-full bg-[#555555]" />
@@ -60,18 +60,18 @@ const Hero = memo(function Hero({
 
       {/* Bottom */}
       <div className="z-10 flex-shrink-0" onClick={stop}>
-        <div className="px-8 pb-5">
+        <div className="px-5 pb-4 sm:px-8 sm:pb-5">
           <button
             onClick={(e) => { e.stopPropagation(); onTransition(e.clientX, e.clientY); }}
-            className="bg-[#f2e3c6] text-[#111111] text-[11px] font-semibold tracking-widest px-7 py-2.5 rounded-full hover:bg-[#e8d5b0] active:scale-95 transition-all"
+            className="w-full sm:w-auto bg-[#f2e3c6] text-[#111111] text-[11px] font-semibold tracking-widest px-7 py-3 sm:py-2.5 rounded-full hover:bg-[#e8d5b0] active:scale-95 transition-all"
           >
             CLICK TO SCAN
           </button>
         </div>
-        <div className="border-t border-[#222222] mx-8" />
-        <footer className="flex justify-between items-center px-8 py-5 text-[11px] text-[#555555] tracking-wider">
+        <div className="border-t border-[#222222] mx-5 sm:mx-8" />
+        <footer className="flex flex-col sm:flex-row sm:justify-between sm:items-center px-5 sm:px-8 py-4 sm:py-5 gap-2 sm:gap-0 text-[10px] sm:text-[11px] text-[#555555] tracking-wider">
           <p>© 2026 ScanFlow. All rights reserved.</p>
-          <div className="flex gap-6">
+          <div className="flex gap-5 sm:gap-6">
             <a href="#" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPrivacy(); }} className="hover:text-[#999] transition-colors">Privacy</a>
             <a href="#" onClick={stop} className="hover:text-[#999] transition-colors">Terms</a>
             <a href="#" onClick={stop} className="hover:text-[#999] transition-colors">Contact</a>
