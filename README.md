@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+```markdown
+# 📄 ScanFlow Pro
 
-## Getting Started
+> **100% Local, Privacy-First Document Scanner & PDF Builder**
 
-First, run the development server:
+ScanFlow Pro is a modern web application designed for fast, high-precision document digitization. It runs entirely inside your browser using client-side image processing—ensuring your sensitive documents never touch a server or remote database.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## ✨ Key Features
+
+* **🤖 Live Document Auto-Detection**: Real-time edge detection overlay with target alignment visual cues and automatic frame targeting.
+* **📐 Perspective Adjustment Workshop**: Fine-tune cropped document boundaries using interactive draggable corner anchors, quick rotation controls, and clean surface flattening.
+* **📚 Bulk Scanning & Batch Queue**: Capture multiple pages sequentially, drag-and-drop to reorder in the queue, and assemble complex documents effortlessly.
+* **⚡ Multi-Format Export Options**: Export scans as custom merged multi-page PDFs (with standard page size matching like A4) or download compressed ZIP archives.
+* **🔒 100% In-Browser Execution**: All image processing, deskewing, and file assembly run locally via JavaScript and WebAssembly. Zero uploads, zero tracking, fully functional offline.
+
+---
+
+## 🛠️ Tech Stack
+
+* **Frontend Framework:** React with TypeScript
+* **Build Tool:** Vite
+* **Styling:** Tailwind CSS (Dark Mode & Modern Accent Design System)
+* **Image Processing & Math:** Canvas API, OpenCV.js / WebAssembly
+* **Export Pipeline:** `jsPDF` (PDF generation), `JSZip` (Image archives)
+* **Deployment:** Cloudflare Pages
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+* [Node.js](https://nodejs.org/) (v18.0 or higher)
+* `npm` or `yarn`
+
+### Installation & Local Development
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/Shah-0-7/Scan-Flow.git](https://github.com/Shah-0-7/Scan-Flow.git)
+   cd Scan-Flow
+
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. **Install dependencies:**
+```bash
+npm install
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## Learn More
+3. **Start the development server:**
+```bash
+npm run dev
 
-To learn more about Next.js, take a look at the following resources:
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+4. Open your browser and visit `http://localhost:5173`.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## ☁️ Cloudflare Pages Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is configured for continuous static deployment on Cloudflare Pages.
+
+* **Build Command:** `npm run build`
+* **Output Directory:** `dist`
+
+> **Note on Client-Side Routing:** To ensure sub-routes load cleanly without 404s on browser refresh, a `_redirects` file is located in the `public/` directory:
+> ```text
+> /*   /index.html   200
+> 
+> ```
+> 
+> 
+
+---
+
+## 🔐 Privacy & Security Architecture
+
+* **Zero Cloud Uploads:** No API keys, external endpoints, or remote file storage.
+* **Zero Data Retention:** Captured pages reside strictly within browser RAM and clear upon tab closure.
+* **Offline Compatible:** Once loaded, you can disconnect from the internet and continue scanning without interruption.
+
+---
+
+## 📄 License
+
+Distributed under the MIT License. Copyright (c) 2026 [Shah-0-7]. See `LICENSE` for more information.
+```
+
+```
